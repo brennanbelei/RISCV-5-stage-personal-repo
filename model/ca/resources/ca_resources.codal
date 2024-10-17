@@ -1,0 +1,272 @@
+/**
+ * Codasip s.r.o.
+ *
+ * CONFIDENTIAL
+ *
+ * Copyright 2022 Codasip s.r.o.
+ *
+ * All Rights Reserved.
+ *
+ * NOTICE: All information contained in this file, is and shall remain the property of
+ * Codasip s.r.o. and its suppliers, if any.
+ *
+ * The intellectual and technical concepts contained herein are confidential and proprietary to
+ * Codasip s.r.o. and are protected by trade secret and copyright law.  In addition, elements of the
+ * technical concepts may be patent pending.
+ *
+ * This file is part of the Codasip Studio product. No part of the Studio product, including this
+ * file, may be use, copied, modified, or distributed except in accordance with the terms contained
+ * in Codasip license agreement under which you obtained this file.
+ *
+ *  \file   ca_
+ *  """""""""""""""""""""""""""""resources.codal
+ *  \author Codasip
+ *  \date   09.02.2022
+ *  \brief  cycle accurate model
+ */
+
+#include "ca_defines.hcodal"
+#include "config.hcodal"
+
+#define BOOLEAN_BIT     1    // Boolean control bit of width 1-bit
+#define TWO_BIT         2       // Two bit wide control signal
+
+
+pipeline pipe
+{
+    IF, ID, EX, ME, WB
+};
+
+// -------------------------------------------------------------------------------------------------
+// Fetch stage
+// -------------------------------------------------------------------------------------------------
+//IF stage done
+signal bit[ADDR_W] s_if_nextpc;
+
+//adding as of phase 7
+signal bit[ADDR_W] s_if_pcin;
+//
+
+// -------------------------------------------------------------------------------------------------
+// Decode stage
+// -------------------------------------------------------------------------------------------------
+//add id stall register for phase 8
+register bit[1] r_id_stall                      {default = false;};
+register bit[INSTR_W] r_id_instr_preserved;
+register bit[ADDR_W] r_id_pc_preserved;
+
+//i am adding this as of phase 6
+signal bit[WORD_W] s_id_src1; 
+signal bit[WORD_W] s_id_src2; //not sure if this is the correct location tho
+signal bit[RFF1_W] s_rff1_sel;
+signal bit[RFF2_W] s_rff2_sel; 
+
+
+//regfile Read
+
+signal bit[RF_XPR_W] s_id_rs1;
+signal bit[RF_XPR_W] s_id_rs2;
+signal bit[WORD_W] s_id_reg1;
+signal bit[WORD_W] s_id_reg2;
+
+
+
+
+// Program Counter
+register bit[ADDR_W] r_id_pc            { pipeline = pipe.ID; };
+// Instruction -- Machine Code
+signal bit[INSTR_W] s_id_instr; //the macros are defined in ca_defines.hcodal
+
+// ALU Operation Control
+signal bit[ALUOP_W] s_id_aluop;
+
+//RegFile Read
+//signal bit [] s_id_rs1;
+
+//Control Signals
+signal bit[REGWRITE_W] s_id_regwrite;
+signal bit[SRC2_W] s_id_alusrc2;
+signal bit[HALT_W] s_id_halt;
+signal bit[RF_XPR_W] s_id_rd;
+
+//adding as of phase 7
+signal bit[ALU_SRC1_W] s_id_alusrc1;
+
+signal bit[RFWT_W] s_id_rfwt_sel;
+signal bit[BRNCH_OP_W] s_id_branchop;
+signal bit[BRADD_W] s_id_branch_sel;
+
+//immgen
+signal bit[IMM_TYPE_W] s_id_immsel;
+signal bit[WORD_W] s_id_immed;
+signal bit[WORD_W] s_id_immedi;
+signal bit[WORD_W] s_id_immedb;
+signal bit[WORD_W] s_id_immedu;
+signal bit[WORD_W] s_id_immeds;
+signal bit[WORD_W] s_id_immedj;
+
+//adding rfwt signal
+//signal bit[RFWT_W] s_id_rfwt_sel;
+//end phase 7 additions
+
+//adding as of phase 8
+signal bit[MEM_OP_W] s_id_memop;
+signal bit[BOOLEAN_BIT] s_id_loadhaz; //I need to figure out what bit length this should have
+//end phase 8 additions
+
+
+
+//Instruction opcode + func3 + func7
+signal bit[OPC_W] s_id_opc;
+// -------------------------------------------------------------------------------------------------
+// Execute stage
+// -------------------------------------------------------------------------------------------------
+
+//EX signals
+
+//adding these as of phase6 (these are supposed to be the select lines for the two 3:1 muxes)
+signal bit[FWDA_W] s_fwdA_sel; //this should be named s_ex_fwdA_sel
+signal bit[FWDB_W] s_fwdB_sel; //this should be named s_ex_fwdB_sel
+
+signal bit[WORD_W] s_fwd1_sel; //this should be named s_ex_fwd1_sel
+signal bit[WORD_W] s_fwd2_sel; //this should be named s_ex_fwd2_sel
+
+//I think the other declarations are the correct ones
+register bit[RF_XPR_W] r_ex_rs1                  { pipeline = pipe.EX; };
+register bit[RF_XPR_W] r_ex_rs2                  { pipeline = pipe.EX; }; 
+
+//check these
+signal bit[WORD_W] s_ex_src2; //try replacing SRC2_W to WORD_W
+signal bit[WORD_W] s_ex_alu;
+
+//these are new, the bit length was RFF1_W and RFF2_W before
+register bit[WORD_W] r_ex_src1         		    { pipeline = pipe.EX; }; //check these registers as well
+register bit[WORD_W] r_ex_src2         		    { pipeline = pipe.EX; };//will depend on the case of the RFF select line
+
+
+//im missing one register
+// Pipelined Program Counter + Instruction
+register bit[ADDR_W] r_ex_pc            		{ pipeline = pipe.EX; };
+//register bit[WORD_W] r_ex_reg2            		{ pipeline = pipe.EX; }; //unused definition
+register bit[INSTR_W] r_ex_instr                { pipeline = pipe.EX; };
+register bit[REGWRITE_W] r_ex_regwrite          { pipeline = pipe.EX; };
+
+//register bit[WORD_W] r_ex_reg1            		{ pipeline = pipe.EX; }; //unused definition
+
+register bit[SRC2_W] r_ex_alusrc2            	{ pipeline = pipe.EX; };
+register bit[WORD_W] r_ex_immed           		{ pipeline = pipe.EX; };
+register bit[RF_XPR_W] r_ex_rd           		{ pipeline = pipe.EX; }; //ask about this
+register bit[HALT_W] r_ex_halt            		{ pipeline = pipe.EX; };
+
+// ALU Operation Control
+register bit[ALUOP_W] r_ex_aluop        		{ pipeline = pipe.EX; };
+
+//I'm adding the below signals for phase 7
+signal bit[ADDR_W] s_ex_aluin1;
+signal bit[BOOLEAN_BIT] s_ex_zero;
+signal bit[WORD_W] s_ex_target_addr;
+signal bit[WORD_W] s_ex_brimm; //this is the value of the pc with the immed added
+//end phase 7 additions
+
+//I'm adding the below registers for phase 7
+register bit[ALU_SRC1_W] r_ex_alusrc1           { pipeline = pipe.EX; };
+register bit[BRNCH_OP_W] r_ex_branchop          { pipeline = pipe.EX; };
+register bit[BRADD_W] r_ex_branch_sel           { pipeline = pipe.EX; };
+//for rfwt
+register bit[RFWT_W] r_ex_rfwt_sel              { pipeline = pipe.EX; };
+//end phase 7 additions
+
+//adding these as of phase 8
+signal bit[2] s_ex_memsize;
+//uint2 s_ex_memsize; //check this
+signal bit[WORD_W] s_ex_wtdat; //is this the same thing as encoded_data?
+register bit[WORD_W] r_ex_wtdat                 { pipeline = pipe.EX; };
+register bit[MEM_OP_W] r_ex_memop               { pipeline = pipe.EX; };
+//end phase 8 additions
+
+// -------------------------------------------------------------------------------------------------
+// Memory stage
+// -------------------------------------------------------------------------------------------------
+
+// Pipelined Program Counter + Instruction
+register bit[ADDR_W] r_me_pc           			{ pipeline = pipe.ME; };
+register bit[RF_XPR_W] r_me_rd           		{ pipeline = pipe.ME; };
+register bit[INSTR_W] r_me_instr                { pipeline = pipe.ME; };
+register bit[REGWRITE_W] r_me_regwrite          { pipeline = pipe.ME; };
+register bit[WORD_W] r_me_alu           		{ pipeline = pipe.ME; };
+
+//I'm adding the below registers for phase 7
+register bit[BRNCH_OP_W] r_me_branchop          { pipeline = pipe.ME; };
+register bit[BOOLEAN_BIT] r_me_zero             { pipeline = pipe.ME; };
+register bit[WORD_W] r_me_target_addr           { pipeline = pipe.ME; }; //this is bradd
+
+register bit[RFWT_W] r_me_rfwt_sel              { pipeline = pipe.ME; };
+//end phase 7 additions
+
+//I'm adding these signals as of phase 7
+signal bit[BOOLEAN_BIT] s_me_pcsrc; 
+//end phase 7
+
+//additions as of phase 8
+register bit[WORD_W] r_me_wtdat                 { pipeline = pipe.ME; };
+signal bit[WORD_W] s_me_memdat; //check this
+//signal bit[] s_me_resp;
+signal bit[WORD_W] s_me_decoded_data;
+register bit[MEM_OP_W] r_me_memop               { pipeline = pipe.ME; };
+register bit[2] r_me_memsize                { pipeline = pipe.ME; };
+//end phase 8 additions
+
+// -------------------------------------------------------------------------------------------------
+// Writeback stage
+// -------------------------------------------------------------------------------------------------
+
+// Pipelined Program Counter + Instruction
+register bit[ADDR_W] r_wb_pc            		{ pipeline = pipe.WB; };
+register bit[INSTR_W] r_wb_instr                { pipeline = pipe.WB; };
+register bit[WORD_W] r_wb_alu                   { pipeline = pipe.WB; };
+register bit[RF_XPR_W] r_wb_rd                  { pipeline = pipe.WB; };
+register bit[REGWRITE_W] r_wb_regwrite          { pipeline = pipe.WB; };
+
+//I'm adding the below registers for phase 7
+register bit[WORD_W] r_wb_target_addr           { pipeline = pipe.WB; };
+register bit[RFWT_W] r_wb_rfwt_sel              { pipeline = pipe.WB; };
+//register bit[WORD_W] r_wb_result                { pipeline = pipe.WB; }; //unused definition
+register bit[BRNCH_OP_W] r_wb_branchop          { pipeline = pipe.WB; };
+
+
+//end phase 7 reg additions
+
+//I'm adding the below signals for phase 7
+signal bit[WORD_W] s_wb_result; 
+signal bit[WORD_W] s_wb_incr_pc; 
+//end phase 7 additions
+
+//adding this as of phase 8
+register bit[WORD_W] r_wb_memdat                  { pipeline = pipe.WB; };
+//end phase 8 additions
+
+// -------------------------------------------------------------------------------------------------
+// Pipeline control
+// -------------------------------------------------------------------------------------------------
+
+signal   bit[1] s_if_stall;
+signal   bit[1] s_id_stall;
+signal   bit[1] s_id_clear;
+register bit[1] r_id_clear {default = true;};
+signal   bit[1] s_ex_stall;
+signal   bit[1] s_ex_clear;
+signal   bit[1] s_me_stall;
+signal   bit[1] s_me_clear;
+signal   bit[1] s_wb_stall;
+signal   bit[1] s_wb_clear;
+
+
+
+
+// -------------------------------------------------------------------------------------------------
+// SYSCALL support for simulation
+// -------------------------------------------------------------------------------------------------
+signal bit [BOOLEAN_BIT]            s_syscall_pending;
+signal bit [BOOLEAN_BIT]            s_syscall_stall;
+register bit [TWO_BIT]              r_syscall_delay         {default = 0;};
+

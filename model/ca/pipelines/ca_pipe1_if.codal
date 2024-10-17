@@ -1,0 +1,148 @@
+/**
+ * Codasip s.r.o.
+ *
+ * CONFIDENTIAL
+ *
+ * Copyright 2022 Codasip s.r.o.
+ *
+ * All Rights Reserved.
+ *
+ * NOTICE: All information contained in this file, is and shall remain the property of
+ * Codasip s.r.o. and its suppliers, if any.
+ *
+ * The intellectual and technical concepts contained herein are confidential and proprietary to
+ * Codasip s.r.o. and are protected by trade secret and copyright law.  In addition, elements of the
+ * technical concepts may be patent pending.
+ *
+ * This file is part of the Codasip Studio product. No part of the Studio product, including this
+ * file, may be use, copied, modified, or distributed except in accordance with the terms contained
+ * in Codasip license agreement under which you obtained this file.
+ *
+ *  \file   ca_pipe1_if.codal
+ *  \author Codasip
+ *  \date   09.02.2022
+ *  \brief  cycle accurate model
+ */
+
+// -------------------------------------------------------------------------------------------------
+// Fetch stage
+// -------------------------------------------------------------------------------------------------
+
+#include "config.hcodal"
+#include "ca_defines.hcodal"
+
+//maybe it goes here?
+/*
+    if_code . transport ( CP_PHS_ADDRESS , CP_AHB_NONSEQ , CP_AHB_READ , r_pc , CP_AHB_SIZE_32 ) ;
+    s_if_nextpc = r_pc + INSTR_SIZE ;
+*/
+
+event fe : pipeline(pipe.IF)
+{
+    use if_output;
+
+    semantics
+    {
+        // -----------------------------------------------------------------------------------------
+        // Pipeline control
+        // -----------------------------------------------------------------------------------------
+        //adding as of phase 7
+        //does this go here or in the if_output section???
+        if( s_me_pcsrc ){
+            s_if_pcin = r_me_target_addr;
+        } 
+        else{
+            s_if_pcin = r_pc;
+        }
+
+
+        //adding this as of Phase 8
+        //the below block might replace lines 71 and 72
+        /*
+        if_code . transport(CP_PHS_DATA, cache_ready, cache_response, id_instr_temp) //double check this because I think right now id_instr_temp 
+        WARNING: THE ABOVE PART DOES NOT GO HERE. THE BLOCK FROM THIS SLIDE GOES IN THE ID STAGE 
+        NOT IN THE IF STAGE!!!
+
+
+
+
+    
+        */
+        //im adding this 
+        
+        //
+
+        //adding this as of Phase 8
+        //the below lines might replace lines 87-93 (I checked it and this is correct, so uncomment it)
+        if_code.transport( CP_PHS_ADDRESS , CP_AHB_NONSEQ , CP_AHB_READ , s_if_pcin , CP_AHB_SIZE_32 ) ;
+
+        s_id_clear = 0;
+        s_ex_clear = (s_me_pcsrc || s_id_stall);
+        s_wb_clear = 0;
+        s_me_clear = s_me_pcsrc;
+
+
+        
+        s_if_nextpc = s_if_pcin + INSTR_SIZE ;
+        // Set all the clear signals.
+        //does this go here or in the if_output section???
+        // s_id_clear = 0; //was s_me_pcsrc
+        // s_ex_clear = s_me_pcsrc;
+        // s_wb_clear = 0;
+        // s_me_clear = s_me_pcsrc;
+
+        // Set the local stall signal.
+        //im gonna move this to the top
+        s_if_stall = 0;
+
+       
+        // Update the registers
+        if_output();
+    };
+};
+
+event if_output : pipeline(pipe.IF)
+{
+    semantics
+    {
+        //adding as of phase 8
+        //check this block below:
+
+        /*
+        if(s_id_stall == 0)
+        {
+            r_pc = s_if_nextpc;
+        }
+        */
+        //this block above might actually be: (I checked it and this is correct, so uncomment it)
+        
+        r_pc = s_id_stall? s_if_pcin :s_if_nextpc;
+        r_id_pc = s_if_pcin;
+        r_id_clear = 0;
+        r_id_stall = s_id_stall;
+        
+        /*
+        try this instead
+        if(s_id_stall){
+            r_pc = s_if_nextpc;
+        }
+        else{
+            r_pc = s_if_pcin;
+        }
+        r_id_pc = s_if_pcin;
+        r_id_clear = 0;
+        r_id_stall = s_id_stall;
+        */
+
+        //r_pc = s_if_nextpc;
+        //commenting the below block out to replace with 117-120
+        // r_id_pc = s_if_pcin; //changing from r_pc
+        // r_id_clear = 0;
+        // r_id_stall = s_id_stall;
+
+        //maybe try r_id_clear = 0;
+
+        
+   
+    };
+};

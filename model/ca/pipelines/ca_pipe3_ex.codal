@@ -1,0 +1,350 @@
+/**
+ * Codasip s.r.o.
+ *
+ * CONFIDENTIAL
+ *
+ * Copyright 2022 Codasip s.r.o.
+ *
+ * All Rights Reserved.
+ *
+ * NOTICE: All information contained in this file, is and shall remain the property of
+ * Codasip s.r.o. and its suppliers, if any.
+ *
+ * The intellectual and technical concepts contained herein are confidential and proprietary to
+ * Codasip s.r.o. and are protected by trade secret and copyright law.  In addition, elements of the
+ * technical concepts may be patent pending.
+ *
+ * This file is part of the Codasip Studio product. No part of the Studio product, including this
+ * file, may be use, copied, modified, or distributed except in accordance with the terms contained
+ * in Codasip license agreement under which you obtained this file.
+ *
+ *  \file   ca_pipe3_ex.codal
+ *  \author Codasip
+ *  \date   09.02.2022
+ *  \brief  Execute stage - cycle accurate model
+ */
+
+#include "ca_defines.hcodal"
+#include "debug.hcodal"
+
+// -------------------------------------------------------------------------------------------------
+// Execute Stage
+// -------------------------------------------------------------------------------------------------
+event ex : pipeline(pipe.EX)
+{
+    use ex_memory;
+    use ex_output;
+    
+
+    semantics
+    {
+
+        // HALT instruction detection
+        if (r_ex_halt == HALT_HALT)
+        {
+            codasip_break();
+            codasip_info(INFO_GENERAL, "Halt Instructions Indicated");
+        }
+
+        //this block of if-else statements below implements the FWDCTL logic
+        
+        //the below block is for selecting fwdA 
+        //add another condition to these if else ifs, follow pipe 2 example
+        if((r_ex_rs1 == r_me_rd) && ( r_me_rd != 0) && (r_me_regwrite)){
+            s_fwdA_sel = FWDA_MEM;
+            
+        }
+        else if((r_ex_rs1 == r_wb_rd) && ( r_wb_rd != 0) && (r_wb_regwrite)){
+            s_fwdA_sel = FWDA_WB;
+            
+        }
+        else{
+            s_fwdA_sel = FWDA_SOURCE;
+            
+        }
+
+        //the below block is for selecting fwdB
+        if((r_ex_rs2 == r_me_rd) && ( r_me_rd != 0) && (r_me_regwrite)){
+            s_fwdB_sel = FWDB_MEM;
+            
+        }
+        else if((r_ex_rs2 == r_wb_rd) && ( r_wb_rd != 0) && (r_wb_regwrite)){
+            s_fwdB_sel = FWDB_WB;
+            
+        }
+        else{
+            s_fwdB_sel = FWDB_SOURCE;
+            
+        }
+
+        //this is the 3:1 Mux with fwdA
+        switch (s_fwdA_sel){
+            case FWDA_SOURCE:
+                s_fwd1_sel = r_ex_src1; //used to be s_fwd1_sel = r_ex_reg1
+                break;
+            case FWDA_MEM:
+                s_fwd1_sel = r_me_alu;
+                break;
+            case FWDA_WB:
+                s_fwd1_sel = s_wb_result; //was previously r_wb_alu
+                break;
+            default:
+            //I'm not sure what to put here, I'm not sure where the error code defintions are
+                break;
+
+        }
+
+        //this is the 3:1 Mux with fwdB
+        switch (s_fwdB_sel){
+            case FWDB_SOURCE:
+                s_fwd2_sel = r_ex_src2; //used to be s_fwd2_sel = r_ex_reg2
+                break;
+            case FWDB_MEM:
+                s_fwd2_sel = r_me_alu;
+                break;
+            case FWDB_WB:
+                s_fwd2_sel = s_wb_result; //was previously r_wb_alu
+                break;
+            default:
+            //I'm not sure what to put here, I'm not sure where the error code defintions are
+                break;
+        }
+
+        switch ( r_ex_alusrc1 )
+        {
+            //I added this switch statement as of phase 7
+            case ALU_SRC1_REG :
+                s_ex_aluin1 = s_fwd1_sel;
+                break ;
+            case ALU_SRC1_ZERO :
+                s_ex_aluin1 = 0;
+                break ;
+
+            case ALU_SRC1_PC :
+                s_ex_aluin1 = r_ex_pc;
+                break;
+            default :
+                //s_ex_src2 = 0; //commenting out to try to fix WAW error
+                codasip_fatal ( SRC1_ERROR , " Default case : %d\n " , r_ex_alusrc1 );
+                break;
+        }
+
+        switch ( r_ex_alusrc2 )
+        {
+            //i think this code that was provided is all that is needed for this switch statement
+            //it is a mux that only has 2 possibilities
+            case ALU2_REG :
+                s_ex_src2 = s_fwd2_sel;
+                break;
+            case ALU2_IMM :
+                s_ex_src2 = r_ex_immed ;
+                break;
+            default :
+                s_ex_src2 = 0;
+                codasip_fatal ( SRC2_ERROR , " Default case : %d\n " , r_ex_alusrc2 );
+                break;
+        }
+        switch ( r_ex_aluop )
+        {
+            // Nop
+            case ALU_NOP :
+                s_ex_alu = 0;
+                break ;
+            case ALU_ADD:
+                //double check this, but I think this is right
+                s_ex_alu = s_ex_aluin1 + s_ex_src2; //s_ex_src2 is the value coming straight from the mux
+                break;
+            case ALU_SUB:
+                s_ex_alu = s_ex_aluin1 - s_ex_src2;
+                break;
+            case ALU_XOR:
+                s_ex_alu = s_ex_aluin1 ^ s_ex_src2;
+                break;
+            case ALU_OR:
+                s_ex_alu = s_ex_aluin1 | s_ex_src2;
+                break;
+            case ALU_AND:
+                s_ex_alu = s_ex_aluin1 & s_ex_src2;
+                break;
+            case ALU_SLL:
+                s_ex_alu = s_ex_aluin1 << (int5) s_ex_src2;
+                break;
+            case ALU_SRL:
+                s_ex_alu = s_ex_aluin1 >> (int5) s_ex_src2;
+                break;
+            case ALU_SRA:
+                s_ex_alu = (int32) s_ex_aluin1 >> (int5) s_ex_src2;
+                break;
+            case ALU_SLT:
+                if((int32)s_ex_aluin1 < (int32)s_ex_src2) s_ex_alu = 1;
+                else s_ex_alu = 0;
+                break;
+            case ALU_SLTU:
+                if(s_ex_aluin1 < s_ex_src2) s_ex_alu = 1;
+                else s_ex_alu = 0;
+                break;
+            default:
+                s_ex_alu = 0;
+                //codasip_fatal("Default case %d \n", r_ex_aluop); //check to make sure this function call has proper syntax
+                break;
+                
+        }
+        //adding this call as of phase 8 (check this)
+        //ex_memory();
+
+        //the below switch statement is for the multiplexer that selects the branch target address aka bradd
+        switch (r_ex_branch_sel)
+        {
+            case BRADD_ADDR:
+                s_ex_brimm = r_ex_pc + r_ex_immed; //maybe come back to this
+                s_ex_target_addr = s_ex_brimm;
+                break;
+            case BRADD_ALU:
+                s_ex_target_addr = s_ex_alu;
+                break;
+        }
+
+        //this if statement is for the generation of the s_ex_zero signal
+        if ( s_ex_alu == 0)
+        {
+            s_ex_zero = 1; //is this what it means by the generation of the signal
+        }
+        else{
+            s_ex_zero = 0;
+        }
+
+        
+
+        //I think that the commented block below is only for phase 5
+        /*
+        switch ( r_ex_alusrc2 )
+        {
+            //i think this code that was provided is all that is needed for this switch statement
+            //it is a mux that only has 2 possibilities
+            case ALU2_REG :
+                s_ex_src2 = r_ex_reg2 ;
+                break ;
+            case ALU2_IMM :
+                s_ex_src2 = r_ex_immed ;
+                break ;
+            default :
+                s_ex_src2 = 0;
+                codasip_fatal ( SRC2_ERROR , " Default case : %d\n " , r_ex_alusrc2 );
+                break ;
+        }
+        switch ( r_ex_aluop )
+        {
+            // Nop
+            case ALU_NOP :
+                s_ex_alu = 0;
+                break ;
+            case ALU_ADD:
+                //double check this, but I think this is right
+                s_ex_alu = r_ex_reg1 + s_ex_src2; //s_ex_src2 is the value coming straight from the mux
+                break;
+            default:
+                //codasip_fatal("Default case %d \n", r_ex_aluop); //check to make sure this function call has proper syntax
+                break;
+                
+        }   
+        */
+        // Timing
+        ex_memory();
+        s_ex_stall = s_me_stall;
+        ex_output();
+    };
+};
+
+event ex_memory : pipeline(pipe.EX)
+{
+    semantics {
+        uint1 op_rw; //read write
+        uint2 op_type;
+
+        switch(r_ex_memop){
+            case MEM_SW:
+                op_rw = CP_AHB_WRITE;
+                op_type = CP_AHB_NONSEQ;
+                s_ex_memsize = CP_AHB_SIZE_32;
+                break;
+            case MEM_SH:
+                op_rw = CP_AHB_WRITE;
+                op_type = CP_AHB_NONSEQ;
+                s_ex_memsize = CP_AHB_SIZE_16;
+                break;
+            case MEM_SB:
+                op_rw = CP_AHB_WRITE;
+                op_type = CP_AHB_NONSEQ;
+                s_ex_memsize = CP_AHB_SIZE_8;
+                break;
+            case MEM_LB:
+                op_rw = CP_AHB_READ;
+                op_type = CP_AHB_NONSEQ;
+                s_ex_memsize = CP_AHB_SIZE_8;
+                break;
+            case MEM_LH:
+                op_rw = CP_AHB_READ;
+                op_type = CP_AHB_NONSEQ;
+                s_ex_memsize = CP_AHB_SIZE_16;
+                break;
+            case MEM_LW:
+                op_rw = CP_AHB_READ;
+                op_type = CP_AHB_NONSEQ;
+                s_ex_memsize = CP_AHB_SIZE_32;
+                break;
+            case MEM_LBU:
+                op_rw = CP_AHB_READ;
+                op_type = CP_AHB_NONSEQ;
+                s_ex_memsize = CP_AHB_SIZE_8;
+                break;
+            case MEM_LHU:
+                op_rw = CP_AHB_READ;
+                op_type = CP_AHB_NONSEQ;
+                s_ex_memsize = CP_AHB_SIZE_16;
+                break;
+            case MEM_NOP:
+                op_rw = DONT_CARE;
+                op_type = CP_AHB_IDLE;
+                
+                //s_ex_memsize = CP_AHB_SIZE_0;
+                s_ex_memsize = DONT_CARE;
+                break;
+            default:
+                //may need to define op_rw, op_type, and s_ex_memsize for this case (not sure yet)
+                break;
+        }
+        ldst.transport( CP_PHS_ADDRESS , op_type , op_rw , s_ex_alu , s_ex_memsize );
+        s_ex_wtdat = ldst.encode_data( s_fwd2_sel , s_ex_alu , s_ex_memsize ); //was formerly called s_ex_encode_data //changed s_ex_fwd2 to s_fwd2_sel
+        
+
+        
+    };
+};
+
+event ex_output : pipeline(pipe.EX)
+{
+    semantics
+    {
+        r_me_pc = r_ex_pc;
+        r_me_rd = r_ex_rd;
+        r_me_instr = r_ex_instr;
+        r_me_regwrite = r_ex_regwrite;
+        r_me_alu = s_ex_alu;
+
+        //adding as of phase 7
+        r_me_branchop = r_ex_branchop;
+        r_me_rfwt_sel = r_ex_rfwt_sel;
+        r_me_target_addr = s_ex_target_addr;
+        r_me_zero = s_ex_zero;
+
+        //adding as of phase 8
+        r_me_memop = r_ex_memop;
+        r_me_wtdat = s_ex_wtdat;
+        r_me_memsize = s_ex_memsize;
+        //end phase 8 additions
+
+
+
+
+    };
+};

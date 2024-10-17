@@ -1,0 +1,304 @@
+/**
+ * Codasip s.r.o.
+ *
+ * CONFIDENTIAL
+ *
+ * Copyright 2022 Codasip s.r.o.
+ *
+ * All Rights Reserved.
+ *
+ * NOTICE: All information contained in this file, is and shall remain the property of
+ * Codasip s.r.o. and its suppliers, if any.
+ *
+ * The intellectual and technical concepts contained herein are confidential and proprietary to
+ * Codasip s.r.o. and are protected by trade secret and copyright law.  In addition, elements of the
+ * technical concepts may be patent pending.
+ *
+ * This file is part of the Codasip Studio product. No part of the Studio product, including this
+ * file, may be use, copied, modified, or distributed except in accordance with the terms contained
+ * in Codasip license agreement under which you obtained this file.
+ *
+ *  \file   ca_pipe2_ex.codal
+ *  \author Codasip
+ *  \date   09.02.2022
+ *  \brief  cycle accurate model
+ */
+
+#include "config.hcodal"
+#include "ca_defines.hcodal"
+
+// -------------------------------------------------------------------------------------------------
+// Decode stage
+// -------------------------------------------------------------------------------------------------
+
+
+
+
+
+event id : pipeline(pipe.ID)
+{
+    use dec;
+    use id_output;
+
+    semantics
+    {
+        uint32 id_instr_temp;
+        bool cache_ready, cache_response;
+
+        if_code.transport( CP_PHS_DATA , cache_ready , cache_response , id_instr_temp );
+
+        if( r_id_clear ){
+            s_id_instr = NOP_INSTRUCTION ;
+        }
+        else if ( r_id_stall ){
+            s_id_instr = r_id_instr_preserved ;
+            r_id_pc = r_id_pc_preserved ;
+        }
+        else {
+            s_id_instr = id_instr_temp ;
+        }
+
+        //s_id_instr = r_id_clear ? NOP_INSTRUCTION : id_instr_temp ;
+
+        // Opcode
+        s_id_opc = s_id_instr [31..25] :: s_id_instr [14..12] :: s_id_instr [6..0];
+        // First source register
+        s_id_rs1 = s_id_instr [19..15];
+        // Second source register
+        s_id_rs2 = s_id_instr [24..20];
+        // Destination register
+        s_id_rd = s_id_instr [11..7];
+        // Immediate decode
+        //s_id_immed = ( int32 )( int12 ) s_id_instr [31..20]; //moved to line 64 now called s_id_immedi
+        //add the new immediates from Phase 7 here
+        s_id_immedb = (( int32 )( int12 )( s_id_instr [31..31]:: s_id_instr [7..7]:: s_id_instr [30..25]::s_id_instr [11..8]) ) << 1;
+        s_id_immedi = ( int32 )( int12 ) s_id_instr [31..20]; 
+        s_id_immedu = (( int32 ) s_id_instr [31..12]) << 12;
+        s_id_immeds = (( int32 )( int12 )(s_id_instr [31..25]:: s_id_instr [11..7]));
+        s_id_immedj = (( int32 )( int12 )( s_id_instr [31..31]:: s_id_instr [19..12]:: s_id_instr [20..20]::s_id_instr [30..21]) ) << 1; //double check this
+        //end new immediates from Phase 7
+
+    
+        //keep reading instruction to make different constructions of immediate for each type
+        //after call dec:eventually have switch statement to assign immediate to the proper
+        //immediate type
+
+        //source register code
+        s_id_reg1 = rf_xpr . src1 [ s_id_rs1 ];
+        s_id_reg2 = rf_xpr . src2 [ s_id_rs2];
+
+        // RFF1 control
+        if (( r_wb_rd == s_id_rs1 ) && ( r_wb_rd != 0) && ( r_wb_regwrite )){
+            s_rff1_sel = RFF1_WB_STAGE;  //was RFF1_ID_STAGE//replace 0s and 1s with corresponding enums
+        }
+        else s_rff1_sel = RFF1_ID_STAGE; //was RFF1_WB_STAGE
+        // RFF2 control
+        if (( r_wb_rd == s_id_rs2 ) && ( r_wb_rd != 0) && ( r_wb_regwrite )){
+            s_rff2_sel = RFF2_WB_STAGE;
+        }
+        else s_rff2_sel = RFF2_ID_STAGE;
+
+
+        // i am really not sure if these switch statements are correct
+        switch (s_rff1_sel){
+
+            case RFF1_ID_STAGE:
+                s_id_src1 = s_id_reg1;
+                break;
+            case RFF1_WB_STAGE:
+                s_id_src1 = s_wb_result; //was previously r_wb_alu
+                break;
+            default:
+            //not sure what the default should be
+                s_id_src1 = 0;
+                break;
+
+        }
+        switch (s_rff2_sel){
+
+            case RFF2_ID_STAGE:
+                s_id_src2 = s_id_reg2;
+                break;
+            case RFF2_WB_STAGE:
+                s_id_src2 = s_wb_result; //was previously r_wb_alu
+                break;              
+            default:
+            //not sure what the default should be
+                s_id_src2 = 0;
+                break;
+        }
+
+
+
+
+
+        // Decoder activation
+        dec(s_id_opc);
+
+        //add 6-1 multiplexor (IMMGEN control block), must be after call to dec()
+        switch(s_id_immsel){
+            case IMM_ITYPE:
+                s_id_immed = s_id_immedi ;
+                break;
+            case IMM_STYPE:
+                s_id_immed = s_id_immeds;
+                break;
+            case IMM_BTYPE:
+                s_id_immed = s_id_immedb;
+                break;
+            case IMM_JTYPE:
+                s_id_immed = s_id_immedj;
+                break;
+            case IMM_UTYPE:
+                s_id_immed = s_id_immedu;
+                break;
+            case IMM_NONE:
+                s_id_immed = 0;
+                break;
+            default:
+                //didn't add the correct error code
+                //codasip_fatal("Default case %d \n", s_id_immsel);
+                break;
+        }
+        //adding this as of phase 8
+        //do I need the if_code.transport block from the slides placed here?
+        //I do not think that I need the if_code.transport line below but I will add it commented out
+        //if_code.transport(CP_PHS_DATA, cache_ready, cache_response, id_instr_temp);
+        //I think that the block below is misplaced (I believe that this block should be placed before line 50)
+        // if( r_id_clear ){
+        //     s_id_instr = NOP_INSTRUCTION ;
+        // }
+        // else if ( r_id_stall ){
+        //     s_id_instr = r_id_instr_preserved ;
+        //     r_id_pc = r_id_pc_preserved ;
+        // }
+        // else {
+        //     s_id_instr = id_instr_temp ;
+        // }
+
+        /*
+        To implement the load hazard detection unit we need to check if Source 1 or Source 2 are the same as a destination
+        register of another instruction that is in the execute stage AND the instruction in the execute stage is a load
+        instruction. In this case we want to add a nop into the pipeline to enable the correct data to be forwarded.
+
+        I believe that this logic is for the LDHAZ block in the ID stage (refer to diagram)
+        */
+        
+        //maybe try different logic for this
+        
+        if( ((s_id_rs1 == r_ex_rd) || (s_id_rs2 == r_ex_rd)) && (r_ex_rd != 0) ){
+            //indicates possible hazard
+            switch(r_ex_memop){
+                //checks for if the operation is a load
+                case MEM_LB:
+                    //load hazard for LB
+                    s_id_loadhaz = 1;
+                    break;
+                case MEM_LH:
+                    //load hazard for LH
+                    s_id_loadhaz = 1;
+                    break;
+                case MEM_LW:
+                    //load hazard for LW
+                    s_id_loadhaz = 1;
+                    break;
+                case MEM_LBU:
+                    //load hazard for LBU
+                    s_id_loadhaz = 1;
+                    break;
+                case MEM_LHU:
+                    //load hazard for LHU
+                    s_id_loadhaz = 1;
+                    break;
+                default:
+                    //if one of these cases is not picked up then we can assume
+                    //that there is no load haz because the memory operation isn't a load op
+                    //thus set s_id_loadhaz to 0
+                    s_id_loadhaz = 0;
+                    break;
+            }
+        }
+        else{
+            //no hazard occurs because neither rs1 or rs2 equal r_ex_rd
+            s_id_loadhaz = 0;
+        }
+        
+        /*
+        s_id_loadhaz = ((s_id_rs1 == r_ex_rd) || (s_id_rs2 == r_ex_rd)) && (r_ex_rd != 0) &&
+
+                        ((r_ex_memop == MEM_LW)   ||
+
+                         (r_ex_memop == MEM_LH) || (r_ex_memop == MEM_LHU) ||
+
+                         (r_ex_memop == MEM_LB) || (r_ex_memop == MEM_LBU) );
+        */
+        //adding this as of phase 8
+        //check this, if correct comment out line 211
+        s_id_stall = s_ex_stall || s_id_loadhaz ;
+
+        //end phase 8 additions
+        // Set local stall.
+        //s_id_stall = 0;
+        // Update the registers
+        id_output();
+    };
+};
+
+event id_output : pipeline(pipe.ID)
+{
+
+    semantics
+    {
+        // -----------------------------------------------------------------------------------------
+        // Pipeline output
+        // -----------------------------------------------------------------------------------------
+
+       
+
+        //adding new pipeline registers as of Phase 7
+        
+
+        //adding new pipeline registers as of Phase 7
+
+
+        //register assignments
+       
+        r_ex_pc = r_id_pc;
+        r_ex_aluop = s_id_aluop;
+        r_ex_regwrite = s_id_regwrite;
+        r_ex_alusrc2 = s_id_alusrc2;
+        r_ex_halt = s_id_halt;
+
+        //not sure about below block
+        //r_ex_reg1 = s_id_reg1;
+        //r_ex_reg2 = s_id_reg2;
+        //
+        r_ex_immed = s_id_immed;
+        r_ex_rd = s_id_rd; 
+        r_ex_instr = s_id_instr;
+
+        r_ex_rs1 = s_id_rs1; //we need these for FWDCTL
+        r_ex_rs2 = s_id_rs2; //we need these for FWDCTL
+
+        //adding these per phase 6, double check this (these are good, checked with TA)
+        r_ex_src1 = s_id_src1;
+        r_ex_src2 = s_id_src2;
+
+        //adding these as of phase 7
+        r_ex_branchop = s_id_branchop;
+        r_ex_rfwt_sel = s_id_rfwt_sel;
+        r_ex_branch_sel = s_id_branch_sel;
+        r_ex_alusrc1 = s_id_alusrc1;
+
+         //adding as of phase 8
+         //this is from the document very last step
+        r_id_instr_preserved = s_id_instr;
+        r_id_pc_preserved = r_id_pc;
+        r_ex_memop = s_id_memop;
+
+        
+
+
+        
+    };
+};
